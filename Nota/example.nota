@@ -1,0 +1,57 @@
+# Welcome to Nota
+
+This is a `.nota` file. It is a plain text file. **Prose** lives outside
+fenced blocks, and *code* lives inside them.
+
+Type `nota example.nota` to run this.
+
+---
+
+## A first cell
+
+Cells share a single Python namespace, so anything you define in one cell
+is visible in the next.
+
+```python
+rate = 2.5
+years = 10
+total = rate * years
+total
+```
+
+## A curve
+
+Plot cells run their Python, then render every queued plot as ASCII.
+
+```plot
+t = linspace(0, 2*pi, 300)
+plot(t, sin(t), label="sin(t)")
+plot(t, cos(t), label="cos(t)")
+title("sine and cosine")
+xlabel("t")
+```
+
+## A scatter
+
+```plot
+xs = [1, 2, 3, 4, 5, 6]
+ys = [1, 4, 9, 16, 25, 36]
+scatter(xs, ys, label="squares")
+title("y = x^2")
+xlabel("x")
+ylabel("x^2")
+```
+
+## Reusing variables across cells
+
+The variables from earlier cells are still in scope.
+
+```python
+scaled = [y * rate for y in ys]
+scaled
+```
+
+## That's it
+
+Prose, code, plots — all in one text file. Pass `--svg` on the command
+line to also export every plot as a proper SVG.

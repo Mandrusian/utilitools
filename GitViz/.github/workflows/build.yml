@@ -1,0 +1,23 @@
+name: build
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install PyInstaller
+        run: pip install pyinstaller
+      - name: Build exe
+        run: pyinstaller --onefile --console --name gitviz gitviz.py
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitviz-windows
+          path: dist/gitviz.exe

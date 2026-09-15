@@ -1,0 +1,13 @@
+{
+  "description": "Count whitespace-separated words on stdin",
+  "cases": [
+    {
+      "stdin": "hello world\n",
+      "expected": "2\n"
+    },
+    {
+      "stdin": "the quick brown fox jumps\n",
+      "expected": "5\n"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "description": "Print Hello, World! to stdout",
+  "cases": [
+    {
+      "stdin": "",
+      "expected": "Hello, World!\n"
+    }
+  ]
+}

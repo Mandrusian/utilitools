@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+build/
+dist/
+*.spec
+
+# macOS
+.DS_Store
+._*
+
+# Local build outputs / editor junk
+PYCalc.app/
+*.icns
+*.terminal
+pycalc_plot.svg
+*.svg
+!icon/*.svg
+
+# Local notes / backups / drafts
+equation.txt
+gen_equation.py
+PYCalc Backup/
+win-dist/
+PYCalc-Windows.zip
+PYCalc/

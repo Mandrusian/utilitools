@@ -1,0 +1,30 @@
+name: Build Windows EXE
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install deps
+        run: python -m pip install pyinstaller pyreadline3 pillow
+
+      - name: Build icon
+        run: |
+          python -c "from PIL import Image; Image.open('icon/master.png').convert('RGBA').save('icon/PYCalc.ico', format='ICO', sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])"
+
+      - name: Build EXE
+        run: pyinstaller --onefile --console --name PYCalc --icon icon/PYCalc.ico --hidden-import pyreadline3 PYCalc.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PYCalc-Windows
+          path: dist/PYCalc.exe
