@@ -157,20 +157,34 @@ def edit_output(stdscr, out):
                 if pi is None:
                     continue
                 fresh = external_outputs()
+                current = next((o for o in fresh if o["name"] == name), out)
                 others = [o for o in fresh if o["name"] != name and o.get("active", True)]
                 if pi == 2:
                     pos = settings["position"]
+                elif not others:
+                    message(stdscr, ["No other active external monitor was found.",
+                                     "Connect or enable another external monitor first."])
+                    continue
                 else:
-                    anchor = next((o for o in others if o.get("focused")), others[0] if others else None)
-                    if anchor:
-                        rect = anchor.get("rect", {})
-                        ax, ay = rect.get("x", 0), rect.get("y", 0)
-                        aw = rect.get("width", 0)
+                    anchor_labels = [
+                        f'{o["name"]} — {o.get("rect", {}).get("width", "?")}x{o.get("rect", {}).get("height", "?")} at '
+                        f'{o.get("rect", {}).get("x", 0)} {o.get("rect", {}).get("y", 0)}'
+                        for o in others
+                    ]
+                    ai = choose(stdscr, f"Position {name} relative to…", anchor_labels)
+                    if ai is None:
+                        continue
+                    anchor = others[ai]
+                    rect = anchor.get("rect", {})
+                    current_rect = current.get("rect", {})
+                    ax, ay = rect.get("x", 0), rect.get("y", 0)
+                    anchor_w = rect.get("width", 0)
+                    current_w = current_rect.get("width", 0)
+                    if not current_w:
                         scale = float(settings["scale"] or 1)
-                        logical_w = round((out.get("current_mode") or {}).get("width", 0) / scale)
-                        pos = f"{ax + aw if pi == 0 else ax - logical_w} {ay}"
-                    else:
-                        pos = "0 0"
+                        current_w = round((current.get("current_mode") or {}).get("width", 0) / scale)
+                    x = ax + anchor_w if pi == 0 else ax - current_w
+                    pos = f"{x} {ay}"
                 apply_setting(name, "position", pos)
                 settings["position"] = pos
             elif pick == 3:
