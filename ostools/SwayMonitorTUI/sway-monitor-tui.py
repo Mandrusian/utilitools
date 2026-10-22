@@ -179,14 +179,20 @@ def edit_output(stdscr, out):
                     anchor = others[ai]
                     rect = anchor.get("rect", {})
                     current_rect = current.get("rect", {})
-                    ax, ay = rect.get("x", 0), rect.get("y", 0)
                     anchor_w = rect.get("width", 0)
                     current_w = current_rect.get("width", 0)
                     if not current_w:
                         scale = float(settings["scale"] or 1)
                         current_w = round((current.get("current_mode") or {}).get("width", 0) / scale)
-                    x = ax + anchor_w if pi == 0 else ax - current_w
-                    pos = f"{x} {ay}"
+                    # Normalize the chosen pair to a shared origin before placing
+                    # them side-by-side. Moving only the target can leave it far
+                    # away from the anchor after a previous layout/order change.
+                    if pi == 0:  # target to the right of anchor
+                        apply_setting(anchor["name"], "position", "0 0")
+                        pos = f"{anchor_w} 0"
+                    else:  # target to the left of anchor
+                        pos = "0 0"
+                        apply_setting(anchor["name"], "position", f"{current_w} 0")
                 apply_setting(name, "position", pos)
                 settings["position"] = pos
             elif pick == 3:
