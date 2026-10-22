@@ -156,7 +156,9 @@ def edit_output(stdscr, out):
                 pi = choose(stdscr, f"Position {name}", choices)
                 if pi is None:
                     continue
-                fresh = external_outputs()
+                # Include internal panels as positioning anchors, even though the TUI
+                # only offers external outputs for editing.
+                fresh = get_outputs()
                 current = next((o for o in fresh if o["name"] == name), out)
                 others = [o for o in fresh if o["name"] != name and o.get("active", True)]
                 if pi == 2:
