@@ -14,17 +14,17 @@ A small keyboard-driven TUI for configuring external monitors in Sway/SwayFX.
 - Sway or SwayFX running
 - Python 3
 - `swaymsg` available in PATH
+- `curl` for the one-line installer
 
 ## Install
 
-From this repository checkout:
+Copy and paste this into a terminal:
 
 ```sh
-chmod +x SwayMonitorTUI/install.sh
-SwayMonitorTUI/install.sh
+curl -fsSL https://raw.githubusercontent.com/Mandrusian/utilitools/main/ostools/SwayMonitorTUI/install.sh | sh
 ```
 
-The installer places the executable at `~/.local/bin/sway-monitor-tui` (or `$XDG_BIN_HOME/sway-monitor-tui` if set). Ensure that directory is on your `PATH`.
+The installer downloads the latest script and places it at `~/.local/bin/sway-monitor-tui` (or `$XDG_BIN_HOME/sway-monitor-tui` if set). Ensure that directory is on your `PATH`.
 
 Run it inside your Sway/SwayFX session:
 
