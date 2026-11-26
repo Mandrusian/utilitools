@@ -4,6 +4,7 @@
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -65,11 +66,14 @@ def _build_logo():
 
 def logo():
     for line in _build_logo():
-        print("".join(c + t for c, t in line) + RESET)
+        s = "".join(c + t for c, t in line) + RESET
+        if not BLUE:
+            s = re.sub(r"\x1b\[[0-9;]*m", "", s)
+        print(s)
 
 
-def launch_animation():
-    if not sys.stdout.isatty():
+def launch_animation(animate=True):
+    if not animate or not BLUE or not sys.stdout.isatty():
         logo(); return
     lines = _build_logo()
     prepared = []
@@ -114,9 +118,9 @@ def launch_animation():
         sys.stdout.write(SHOW); sys.stdout.flush()
 
 
-def header():
+def header(animate=True):
     print()
-    launch_animation()
+    launch_animation(animate=animate)
     print()
     print(f"  {BLUE}PolyglotBench{RESET}  {DGRAY}same programs, many languages{RESET}")
     print(f"  {DGRAY}" + "\u2500" * 60 + RESET)
@@ -124,7 +128,7 @@ def header():
 
 
 LANGUAGES = {
-    "python":     {"ext": ".py",  "run": ["python3"]},
+    "python":     {"ext": ".py",  "run": [sys.executable or "python3"]},
     "javascript": {"ext": ".js",  "run": ["node"]},
     "go":         {"ext": ".go",  "run": ["go", "run"]},
     "c":          {"ext": ".c",   "compile": ["cc", "-O2", "-o", "{out}"],   "run": ["{out}"]},
@@ -218,12 +222,12 @@ def status_color(s):
             "TIMEOUT": MAGENTA, "ERROR": RED, "SKIP": DGRAY}.get(s, RED)
 
 
-def banner():
-    header()
+def banner(animate=True):
+    header(animate=animate)
 
 
-def cmd_list(problems):
-    banner()
+def cmd_list(problems, animate=True):
+    banner(animate=animate)
     for name, spec, impls in problems:
         desc = spec.get("description", "")
         langs = ", ".join(sorted(impls))
@@ -232,8 +236,8 @@ def cmd_list(problems):
         print()
 
 
-def cmd_run(problems, lang_filter=None):
-    banner()
+def cmd_run(problems, lang_filter=None, animate=True):
+    banner(animate=animate)
     present = [l for l in LANGUAGES if toolchain_available(l)]
     missing = [l for l in LANGUAGES if l not in present]
     print(f"  {DGRAY}available:{RESET} {WHITE}{', '.join(present) or '(none)'}{RESET}")
@@ -277,6 +281,7 @@ def cmd_run(problems, lang_filter=None):
             s = per_lang[lang]
             print(f"    {lang:<12} {GREEN}{s['PASS']}{RESET} pass  {RED}{s['FAIL']}{RESET} fail  {DGRAY}{s['SKIP']}{RESET} skip")
         print()
+    return totals["FAIL"] == 0
 
 
 def main():
@@ -285,9 +290,13 @@ def main():
     ap.add_argument("problem", nargs="?", help="run only this problem")
     ap.add_argument("--lang", "-l", help="run only this language")
     ap.add_argument("--list", action="store_true", help="list problems and available implementations")
+    ap.add_argument("--no-anim", action="store_true", help="skip launch animation")
     ap.add_argument("--no-color", action="store_true")
     args = ap.parse_args()
     if args.no_color or not _supports_color(): _strip_color()
+    if args.lang and args.lang not in LANGUAGES:
+        print(f"  {RED}unknown language: {args.lang}{RESET} (choices: {', '.join(sorted(LANGUAGES))})")
+        sys.exit(1)
     problems = discover_problems()
     if not problems:
         print(f"  {RED}no problems found in {PROBLEMS_DIR}{RESET}"); sys.exit(1)
@@ -295,8 +304,12 @@ def main():
         problems = [p for p in problems if p[0] == args.problem]
         if not problems:
             print(f"  {RED}no such problem: {args.problem}{RESET}"); sys.exit(1)
-    if args.list: cmd_list(problems); return
-    cmd_run(problems, lang_filter=args.lang)
+    animate = not args.no_anim
+    if args.list:
+        cmd_list(problems, animate=animate); return
+    ok = cmd_run(problems, lang_filter=args.lang, animate=animate)
+    if not ok:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

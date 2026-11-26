@@ -385,41 +385,135 @@ def _build_py_expr(tokens):
         prev = (k, v)
     return " ".join(out)
 
-def _eval_ast(node, ns):
-    import ast
-    if isinstance(node, ast.Expression):
-        return _eval_ast(node.body, ns)
-    if isinstance(node, ast.Constant):
-        return node.value
-    if isinstance(node, ast.Name):
-        if node.id in ns: return ns[node.id]
-        raise ValueError(f"unknown unit: '{node.id}'")
-    if isinstance(node, ast.BinOp):
-        l = _eval_ast(node.left, ns)
-        r = _eval_ast(node.right, ns)
-        if isinstance(node.op, ast.Add):  return l + r
-        if isinstance(node.op, ast.Sub):  return l - r
-        if isinstance(node.op, ast.Mult): return l * r
-        if isinstance(node.op, ast.Div):  return l / r
-        if isinstance(node.op, ast.Pow):  return l ** r
-        raise ValueError("unsupported operator")
-    if isinstance(node, ast.UnaryOp):
-        v = _eval_ast(node.operand, ns)
-        if isinstance(node.op, ast.USub): return -v
-        if isinstance(node.op, ast.UAdd): return +v
-    raise ValueError("unsupported expression")
-
-def _unit_namespace():
-    """Build namespace of {unit_name: Quantity(factor, dims)}."""
+def _build_unit_ns():
+    """Build namespace of {unit_name_or_alias: Quantity(factor, dims)}."""
     ns = {}
     for name, (dims, factor) in UNITS.items():
-        if name in TEMP_UNITS: continue   # temps handled separately
+        if name in TEMP_UNITS:
+            continue   # temps handled separately
         ns[name] = Quantity(factor, dims)
+    for alias, canon in UNIT_ALIASES.items():
+        if canon in TEMP_UNITS or canon not in UNITS:
+            continue
+        dims, factor = UNITS[canon]
+        ns.setdefault(alias, Quantity(factor, dims))
     return ns
 
-_UNIT_NS = _unit_namespace()
+_UNIT_NS = _build_unit_ns()
 
-def eval_quantity(expr):
+
+def _lookup_unit(name, extra_ns=None):
+    if extra_ns and name in extra_ns:
+        return extra_ns[name]
+    if name in _UNIT_NS:
+        return _UNIT_NS[name]
+    lower = name.lower()
+    if lower in UNIT_ALIASES:
+        canon = UNIT_ALIASES[lower]
+        if canon in _UNIT_NS:
+            return _UNIT_NS[canon]
+    raise ValueError(f"unknown unit: '{name}'")
+
+
+class _Parser:
+    """Precedence-aware parser for unit expressions.
+
+    Precedence (low -> high):
+      + / -  <  explicit * / /  <  implicit multiplication  <  unary +/-  <  ^ / **
+    """
+    def __init__(self, tokens, extra_ns=None):
+        self.tokens = tokens
+        self.pos = 0
+        self.extra_ns = extra_ns
+
+    def peek(self):
+        return self.tokens[self.pos] if self.pos < len(self.tokens) else None
+
+    def advance(self):
+        tok = self.tokens[self.pos]
+        self.pos += 1
+        return tok
+
+    def parse(self):
+        val = self.parse_expr()
+        if self.peek() is not None:
+            k, v = self.peek()
+            raise ValueError(f"unexpected token: {v!r}")
+        return val
+
+    def parse_expr(self):
+        val = self.parse_term()
+        while (tok := self.peek()) and tok[0] == "op" and tok[1] in ("+", "-"):
+            self.advance()
+            rhs = self.parse_term()
+            val = val + rhs if tok[1] == "+" else val - rhs
+        return val
+
+    def parse_term(self):
+        val = self.parse_implicit()
+        while (tok := self.peek()) and tok[0] == "op" and tok[1] in ("*", "/"):
+            self.advance()
+            rhs = self.parse_implicit()
+            if tok[1] == "*":
+                val = val * rhs
+            else:
+                rhs_val = rhs.value if isinstance(rhs, Quantity) else rhs
+                if rhs_val == 0:
+                    raise ValueError("division by zero")
+                val = val / rhs
+        return val
+
+    def parse_implicit(self):
+        val = self.parse_unary()
+        while (tok := self.peek()) and _starts_value(*tok):
+            rhs = self.parse_unary()
+            val = val * rhs
+        return val
+
+    def parse_unary(self):
+        tok = self.peek()
+        if tok and tok[0] == "op" and tok[1] in ("+", "-"):
+            self.advance()
+            val = self.parse_unary()
+            return -val if tok[1] == "-" else +val
+        return self.parse_power()
+
+    def parse_power(self):
+        lhs = self.parse_primary()
+        tok = self.peek()
+        if tok and tok[0] == "op" and tok[1] in ("^", "**"):
+            self.advance()
+            rhs = self.parse_unary()
+            if isinstance(rhs, Quantity):
+                if rhs.dims:
+                    raise ValueError("exponent must be dimensionless")
+                rhs = rhs.value
+            lhs = lhs ** rhs
+        return lhs
+
+    def parse_primary(self):
+        tok = self.peek()
+        if tok is None:
+            raise ValueError("unexpected end of expression")
+        k, v = tok
+        if k == "num":
+            self.advance()
+            return float(v)
+        if k == "id":
+            self.advance()
+            return _lookup_unit(v, self.extra_ns)
+        if k == "op" and v == "(":
+            self.advance()
+            val = self.parse_expr()
+            closing = self.peek()
+            if not closing or closing != ("op", ")"):
+                raise ValueError("missing closing ')'")
+            self.advance()
+            return val
+        raise ValueError(f"unexpected token: {v!r}")
+
+
+def eval_quantity(expr, extra_ns=None):
     """Parse and evaluate a quantity expression."""
     expr = expr.strip()
     if not expr:
@@ -431,13 +525,10 @@ def eval_quantity(expr):
     except ValueError:
         pass
     tokens = _tokenize(expr)
-    py = _build_py_expr(tokens)
-    import ast
-    try:
-        tree = ast.parse(py, mode="eval")
-    except SyntaxError as e:
-        raise ValueError(f"could not parse: {e.msg}")
-    return _eval_ast(tree, _UNIT_NS)
+    res = _Parser(tokens, extra_ns=extra_ns).parse()
+    if isinstance(res, Quantity):
+        return res
+    return Quantity(res, {})
 
 # ============================================================
 # TEMPERATURE
@@ -457,13 +548,27 @@ def _celsius_to_temp(c, unit):
     raise ValueError(f"unknown temperature unit: {unit}")
 
 _TEMP_RE = re.compile(
-    r"^\s*(-?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*°?\s*([CcFfKkRr])\s*$"
+    r"^\s*(-?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*°?\s*([A-Za-z]+)\s*$"
 )
+_TEMP_UNIT_RE = re.compile(r"^\s*°?\s*([A-Za-z]+)\s*$")
+
 
 def try_temp_side(s):
     m = _TEMP_RE.match(s)
     if not m: return None
-    return float(m.group(1)), m.group(2).upper()
+    u = m.group(2).lower()
+    if u in TEMP_NAMES:
+        return float(m.group(1)), TEMP_NAMES[u]
+    return None
+
+
+def try_temp_unit(s):
+    m = _TEMP_UNIT_RE.match(s)
+    if not m: return None
+    u = m.group(1).lower()
+    if u in TEMP_NAMES:
+        return TEMP_NAMES[u]
+    return None
 
 # ============================================================
 # DISPLAY
@@ -569,7 +674,7 @@ def logo():
         print("".join(c + t for c, t in line) + RESET)
 
 def launch_animation():
-    if not STATE["animations"] or not _supports_color():
+    if not STATE["animations"] or not _supports_color() or not sys.stdout.isatty():
         logo(); return
     lines = _build_logo()
     prepared = []
@@ -619,7 +724,7 @@ def launch_animation():
 
 def wordmark_pulse():
     tail = DGRAY + "\u2022 unit & dimensional analysis engine \u2022" + RESET
-    if not STATE["animations"] or not _supports_color():
+    if not STATE["animations"] or not _supports_color() or not sys.stdout.isatty():
         print(f"  {BLUE}UnitForge{RESET} {tail}")
         return
     for c in [BLUE, WHITE, BLUE, WHITE, BLUE]:
@@ -669,34 +774,36 @@ def first_run_intro():
 # ============================================================
 # CONVERSION
 # ============================================================
-_CONV_RE_ORDER = (r"\s*->\s*", r"\s+to\s+", r"\s+in\s+", r"\s*→\s*")
+_CONV_RE_ORDER = (r"\s*->\s*", r"\s+to\s+", r"(?<=\s)in(?=\s)", r"\s*→\s*")
 
 def split_conversion(s):
     for pat in _CONV_RE_ORDER:
-        m = re.search(pat, s)
-        if m:
+        matches = list(re.finditer(pat, s))
+        if matches:
+            # Prefer last 'in' match so '5 in in cm' splits as ('5 in', 'cm')
+            m = matches[-1] if pat == r"(?<=\s)in(?=\s)" else matches[0]
             left = s[:m.start()].strip()
             right = s[m.end():].strip()
             if left and right:
                 return left, right
     return None, None
 
-def do_conversion(left, right):
-    # temperature special case
+def do_conversion(left, right, extra_ns=None):
+    # temperature special case: "<val> <temp_unit> to <temp_unit>"
     ltemp = try_temp_side(left)
-    rtemp = try_temp_side(right)
+    rtemp = try_temp_unit(right)
     if ltemp and rtemp:
         v, su = ltemp
-        _, du = rtemp
+        du = rtemp
         c = _temp_to_celsius(v, su)
         result = _celsius_to_temp(c, du)
         return result, du, su
     # one side temperature -> dimension mismatch
     if ltemp or rtemp:
-        raise ValueError("temperature conversions require a single number and a single temp unit on both sides")
+        raise ValueError("temperature conversions require a single number + temp unit on the left and a temp unit on the right")
 
-    lq = eval_quantity(left)
-    rq = eval_quantity(right)
+    lq = eval_quantity(left, extra_ns=extra_ns)
+    rq = eval_quantity(right, extra_ns=extra_ns)
     if lq.dims != rq.dims:
         raise ValueError(_dim_mismatch_msg(lq.dims, rq.dims))
     if rq.value == 0:
@@ -715,8 +822,9 @@ def show_steps(expr):
         tokens = _tokenize(expr)
         py = _build_py_expr(tokens)
         print(f"  {DGRAY}1. tokens{RESET}      {WHITE}{tokens}{RESET}")
-        print(f"  {DGRAY}2. python{RESET}      {WHITE}{py}{RESET}")
-        q = eval_quantity(expr)
+        print(f"  {DGRAY}2. expression{RESET}  {WHITE}{py}{RESET}")
+        extra = {"ans": STATE["last_ans"]} if STATE["last_ans"] is not None else None
+        q = eval_quantity(expr, extra_ns=extra)
         print(f"  {DGRAY}3. SI value{RESET}    {WHITE}{q.value} {_dims_str(q.dims)}{RESET}")
         print(f"  {DGRAY}4. result{RESET}      {WHITE}{format_quantity(q, STATE['precision'])}{RESET}")
     except Exception as e:
@@ -939,18 +1047,16 @@ def _supports_color():
     return True
 
 def _strip_ansi_if_needed():
+    global RESET
     if _supports_color(): return
+    RESET = ""
     for preset in THEME_PRESETS.values():
         for k in list(preset.keys()):
             if k == "RAINBOW": preset[k] = [""] * 7
             else: preset[k] = ""
 
 def _print_result(text, animate=True):
-    ctx = "result"
-    if not animate or not _supports_color() or STATE["rainbow"] == "off":
-        print(f"  {GREEN}\u2713{RESET} {WHITE}{text}{RESET}")
-        return
-    if STATE["rainbow"] == "off":
+    if not animate or not _supports_color() or not sys.stdout.isatty() or STATE["rainbow"] == "off":
         print(f"  {GREEN}\u2713{RESET} {WHITE}{text}{RESET}")
         return
     sys.stdout.write(f"  {DGRAY}calculating\u2026{RESET}"); sys.stdout.flush()
@@ -983,20 +1089,18 @@ def process_input(raw):
     if cleaned.startswith("?"):
         show_steps(cleaned[1:].strip()); return
 
-    # ans substitution
-    if STATE["last_ans"] is not None:
-        cleaned = re.sub(r"\bans\b", f"({STATE['last_ans'].value})", cleaned)
+    extra_ns = {"ans": STATE["last_ans"]} if STATE["last_ans"] is not None else None
 
     left, right = split_conversion(cleaned)
     if left and right:
-        value, target_unit, source = do_conversion(left, right)
+        value, target_unit, source = do_conversion(left, right, extra_ns=extra_ns)
         text = f"{_fmt_num(value, STATE['precision'])} {target_unit}"
         _print_result(text)
         STATE["last_expr"] = cleaned
         # store last_ans as SI Quantity when possible
         try:
-            if target_unit.upper() in TEMP_UNITS or (len(target_unit) == 1 and target_unit.upper() in TEMP_UNITS):
-                STATE["last_ans"] = Quantity(value, {"K": 1})   # rough placeholder
+            if try_temp_unit(target_unit):
+                STATE["last_ans"] = Quantity(value, {})
             else:
                 rq = eval_quantity(right)
                 STATE["last_ans"] = Quantity(value * rq.value, rq.dims)
@@ -1005,7 +1109,7 @@ def process_input(raw):
         return
 
     # plain quantity expression
-    q = eval_quantity(cleaned)
+    q = eval_quantity(cleaned, extra_ns=extra_ns)
     text = format_quantity(q, STATE["precision"])
     _print_result(text)
     STATE["last_ans"] = q
@@ -1040,16 +1144,39 @@ def _sigint_handler(sig, frame):
     sys.exit(0)
 
 def main():
+    import argparse
     import signal
+    ap = argparse.ArgumentParser(prog="unitforge",
+                                 description="UnitForge — terminal unit & dimensional analysis engine.")
+    ap.add_argument("expr", nargs="*", help="expression or conversion to evaluate (omit for REPL)")
+    ap.add_argument("--no-anim", action="store_true", help="skip launch and result animations")
+    ap.add_argument("--no-color", action="store_true", help="disable ANSI output")
+    args = ap.parse_args()
+
     load_config()
     _enable_windows_vt()
+    if args.no_color:
+        os.environ["UNITFORGE_NO_COLOR"] = "1"
+    if args.no_anim:
+        STATE["animations"] = False
+        STATE["rainbow"] = "off"
     _strip_ansi_if_needed()
     apply_theme()
     try: signal.signal(signal.SIGINT, _sigint_handler)
     except Exception: pass
-    if is_first_run(): first_run_intro()
+
+    if args.expr:
+        try:
+            process_input(" ".join(args.expr))
+        except Exception as exc:
+            print(f"  {RED}\u2715{RESET} {exc}", file=sys.stderr)
+            sys.exit(1)
+        return
+
+    if is_first_run() and sys.stdin.isatty() and sys.stdout.isatty():
+        first_run_intro()
     setup_completer()
-    header(animate=True)
+    header(animate=STATE["animations"])
     while True:
         print()
         try:

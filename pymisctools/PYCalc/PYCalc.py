@@ -32,12 +32,16 @@ def _color_supported():
         return True
     if _is_wine():
         return False   # Wine's console can't render ANSI
+    if not sys.stdout.isatty():
+        return False
     return True
 
 
 def _strip_ansi_if_needed():
+    global RESET
     if _color_supported():
         return
+    RESET = ""
     for preset in THEME_PRESETS.values():
         for k in list(preset.keys()):
             if k == "RAINBOW":
@@ -280,7 +284,7 @@ def logo():
 
 def launch_animation():
     """Rainbow sweeps across the logo (left -> right), then settles on real colors."""
-    if not STATE["animations"]:
+    if not STATE["animations"] or not _color_supported() or not sys.stdout.isatty():
         logo()
         return
 
@@ -597,6 +601,8 @@ def extract_variables(expr):
 # ANIMATION
 # ============================================================
 def should_anim(ctx):
+    if not _color_supported() or not sys.stdout.isatty():
+        return False
     m = STATE["rainbow"]
     if m == "on": return True
     if m == "off": return False
@@ -614,6 +620,8 @@ def rainbow_result(prefix, result, ctx="result"):
 
 def reveal_constant(label, value_str):
     print(); prefix = f"➔ {label} = "
+    if not should_anim("constant"):
+        print(f"  {prefix}{WHITE}{value_str}{RESET}\n"); return
     sys.stdout.write(f"  {DGRAY}Calculating...{RESET}"); sys.stdout.flush()
     time.sleep(0.15); sys.stdout.write("\r" + " " * 70 + "\r"); sys.stdout.flush()
     for c in RAINBOW:
@@ -902,6 +910,11 @@ def open_svg(path, app=None):
         open_svg(path, None)
 
 
+def _esc_xml(s):
+    return (s.replace("&", "&amp;").replace("<", "&lt;")
+             .replace(">", "&gt;").replace('"', "&quot;"))
+
+
 def generate_svg(exprs, xmin, xmax, ymin, ymax, filename):
     W, H = 900, 600
     ML, MR, MT, MB = 80, 40, 60, 70
@@ -985,7 +998,7 @@ def generate_svg(exprs, xmin, xmax, ymin, ymax, filename):
     for ci, expr in enumerate(exprs):
         color = COLORS[ci % len(COLORS)]
         L.append(f'<rect x="{lx}" y="{ly-9}" width="16" height="11" fill="{color}"/>')
-        L.append(f'<text x="{lx+22}" y="{ly}" font-family="Menlo,monospace" font-size="12" fill="#2c3e50">{expr}</text>')
+        L.append(f'<text x="{lx+22}" y="{ly}" font-family="Menlo,monospace" font-size="12" fill="#2c3e50">{_esc_xml(expr)}</text>')
         ly += 20
 
     L.append('</svg>')
@@ -1481,9 +1494,9 @@ def process_input(raw):
         print(f"  {GREEN}✓{RESET} angle mode: {WHITE}rad{RESET}")
         return
 
-    m = re.fullmatch(r"save\s+(.+)", cmd)
+    m = re.fullmatch(r"save\s+(.+)", cleaned, re.IGNORECASE)
     if m: save_session(m.group(1).strip()); return
-    m = re.fullmatch(r"load\s+(.+)", cmd)
+    m = re.fullmatch(r"load\s+(.+)", cleaned, re.IGNORECASE)
     if m: load_session(m.group(1).strip()); return
 
     m = re.fullmatch(r"!(\d+)", cleaned)
@@ -1633,20 +1646,24 @@ def process_input(raw):
         print(f"  {GREEN}✓{RESET} {WHITE}{name}({', '.join(params)}){RESET} {DGRAY}defined{RESET}")
         return
 
-    # unit conversion / base conversion via "to|in|->"
+    # base conversion via "to|in|->" (evaluate full left expression, e.g. 0xff to dec)
+    m = re.fullmatch(r"\s*(.+?)\s*(?:->|to|in)\s*([A-Za-z]+)\s*", cleaned)
+    if m and m.group(2).lower() in BASE_TARGETS:
+        left_str, target = m.group(1).strip(), m.group(2).lower()
+        val = safe_eval(left_str, {})
+        if isinstance(val, complex) and abs(val.imag) > 1e-12:
+            raise ValueError("cannot convert complex numbers between bases")
+        n = int(val.real if isinstance(val, complex) else val)
+        print()
+        rainbow_result(f"➔ {n} → {BASE_TARGETS[target]}: ", format_base(n, BASE_TARGETS[target]), ctx="result")
+        return
+
+    # unit conversion via "to|in|->"
     m = re.fullmatch(
-        r"\s*([\d\.\+\-\*/\(\)\s]+?)\s*([a-zA-Z]+)\s*(?:->|to|in)\s*([a-zA-Z0-9]+)\s*",
+        r"\s*([\d\.\+\-\*/\(\)\s]+?(?:[eE][+-]?\d+)?)\s*([a-zA-Z]+)\s*(?:->|to|in)\s*([a-zA-Z0-9]+)\s*",
         cleaned)
     if m:
         left_str, from_u, target = m.group(1).strip(), m.group(2), m.group(3).lower()
-        if target in BASE_TARGETS:
-            val = safe_eval(left_str, {})
-            if isinstance(val, complex) and abs(val.imag) > 1e-12:
-                raise ValueError("cannot convert complex numbers between bases")
-            n = int(val.real if isinstance(val, complex) else val)
-            print()
-            rainbow_result(f"➔ {n} → {BASE_TARGETS[target]}: ", format_base(n, BASE_TARGETS[target]), ctx="result")
-            return
         try:
             val = float(safe_eval(left_str, {}))
         except Exception:
@@ -1693,15 +1710,6 @@ def process_input(raw):
 # MAIN
 # ============================================================
 def _shutdown():
-    try: print()
-    except Exception: pass
-    try: print(f"\n  {DGRAY}Goodbye.{RESET}")
-    except Exception: pass
-    try: save_config()
-    except Exception: pass
-
-
-def _shutdown():
     import signal
     # Ignore any further SIGINT/SIGTERM so Ctrl-C during shutdown is a no-op
     try:
@@ -1736,36 +1744,37 @@ def _enable_windows_vt():
         pass
 
 
-def _color_supported():
-    """Return False if we should strip ANSI (env var or unsupported console)."""
-    if os.environ.get("NO_COLOR"):
-        return False
-    if os.environ.get("PYCALC_NO_COLOR"):
-        return False
-    return True
-
-
-def _strip_ansi_if_needed():
-    if _color_supported():
-        return
-    # Override every theme with empty strings so nothing prints escape codes
-    for preset in THEME_PRESETS.values():
-        for k in list(preset.keys()):
-            if k == "RAINBOW":
-                preset[k] = [""] * 7
-            else:
-                preset[k] = ""
-
-
 def main():
+    import argparse
+    ap = argparse.ArgumentParser(prog="pycalc",
+                                 description="PYCalc — terminal mathematics engine.")
+    ap.add_argument("-e", "--eval", dest="expr", help="evaluate a single expression and exit")
+    ap.add_argument("--no-anim", action="store_true", help="skip launch and result animations")
+    ap.add_argument("--no-color", action="store_true", help="disable ANSI output")
+    args = ap.parse_args()
+
     load_config()
     _enable_windows_vt()
+    if args.no_color:
+        os.environ["PYCALC_NO_COLOR"] = "1"
+    if args.no_anim:
+        STATE["animations"] = False
+        STATE["rainbow"] = "off"
     _strip_ansi_if_needed()
     apply_theme()
-    if is_first_run():
+
+    if args.expr is not None:
+        try:
+            process_input(args.expr)
+        except Exception as exc:
+            print(f"  {RED}\u2715{RESET} {exc}", file=sys.stderr)
+            sys.exit(1)
+        return
+
+    if is_first_run() and sys.stdin.isatty() and sys.stdout.isatty():
         first_run_intro()
     setup_completer()
-    header(animate=True)
+    header(animate=STATE["animations"])
     while True:
         if STATE["status_line"]:
             print_status()

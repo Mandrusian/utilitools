@@ -53,9 +53,22 @@ if exist "%UTILITOOLS_DIR%\.git" (
 )
 
 REM --- 4. install pyinit ---
-if exist "%UTILITOOLS_DIR%\pyinit\install_pyinit.py" (
+if exist "%UTILITOOLS_DIR%\pymisctools\pyinit\install_pyinit.py" (
+    echo   * installing pyinit launcher
+    python "%UTILITOOLS_DIR%\pymisctools\pyinit\install_pyinit.py"
+    if %ERRORLEVEL% NEQ 0 (
+        echo   X pyinit install failed
+        exit /b 1
+    )
+) else if exist "%UTILITOOLS_DIR%\pyinit\install_pyinit.py" (
     echo   * installing pyinit launcher
     python "%UTILITOOLS_DIR%\pyinit\install_pyinit.py"
+    if %ERRORLEVEL% NEQ 0 (
+        echo   X pyinit install failed
+        exit /b 1
+    )
+) else (
+    echo   ! pyinit installer not found under %UTILITOOLS_DIR%
 )
 
 echo.

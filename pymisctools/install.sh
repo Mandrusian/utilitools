@@ -72,9 +72,14 @@ fi
 ok "utilitools at $INSTALL_DIR"
 
 # --- 4. install pyinit ---
-if [ -f "$INSTALL_DIR/pyinit/install_pyinit.py" ]; then
+if [ -f "$INSTALL_DIR/pymisctools/pyinit/install_pyinit.py" ]; then
+    say "installing pyinit launcher"
+    "$PY" "$INSTALL_DIR/pymisctools/pyinit/install_pyinit.py" || true
+elif [ -f "$INSTALL_DIR/pyinit/install_pyinit.py" ]; then
     say "installing pyinit launcher"
     "$PY" "$INSTALL_DIR/pyinit/install_pyinit.py" || true
+else
+    err "pyinit installer not found under $INSTALL_DIR"
 fi
 
 echo

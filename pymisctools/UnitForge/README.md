@@ -11,6 +11,8 @@ and prints everything in the terminal with the same look and feel as PYCalc.
 ## Quick start
 
     python3 unitforge.py
+    python3 unitforge.py "100 F to C"
+    python3 unitforge.py --no-anim --no-color "5 km in mi"
 
 Then type any of these at the prompt:
 

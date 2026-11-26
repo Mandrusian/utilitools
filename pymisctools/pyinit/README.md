@@ -6,6 +6,7 @@ Launcher for the utilitools suite. Discovers every tool folder under
 ## Quick start
 
     python3 pyinit.py           # menu
+    python3 pyinit.py --list    # list discovered tools and exit
     python3 pyinit.py PYCalc    # launch by name
     python3 pyinit.py Nota example.nota   # launch with args
 

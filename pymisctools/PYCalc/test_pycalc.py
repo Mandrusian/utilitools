@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Minimal unit tests for PYCalc. Run: python3 test_pycalc.py"""
-import importlib.util, unittest
+import importlib.util, pathlib, unittest
 
-spec = importlib.util.spec_from_file_location("pc", "PYCalc.py")
+_PYCALC_PATH = pathlib.Path(__file__).resolve().parent / "PYCalc.py"
+spec = importlib.util.spec_from_file_location("pc", _PYCALC_PATH)
 pc = importlib.util.module_from_spec(spec); spec.loader.exec_module(pc)
 
 
