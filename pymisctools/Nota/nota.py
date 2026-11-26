@@ -140,7 +140,9 @@ def _supports_color():
 
 
 def _strip_ansi_if_needed():
+    global RESET
     if _supports_color(): return
+    RESET = ""
     for preset in THEME_PRESETS.values():
         for k in list(preset.keys()):
             if k == "RAINBOW": preset[k] = [""] * 7
@@ -172,7 +174,7 @@ def logo():
 
 
 def launch_animation():
-    if not STATE["animations"] or not _supports_color():
+    if not STATE["animations"] or not _supports_color() or not sys.stdout.isatty():
         logo(); return
     prepared = []
     for line in _build_logo():
@@ -216,7 +218,7 @@ def launch_animation():
 
 def wordmark_pulse():
     tail = DGRAY + "\u2022 plain-text notebooks \u2022 Python backend" + RESET
-    if not STATE["animations"] or not _supports_color():
+    if not STATE["animations"] or not _supports_color() or not sys.stdout.isatty():
         print(f"  {BLUE}Nota{RESET} {tail}"); return
     for c in [BLUE, WHITE, BLUE, WHITE, BLUE]:
         sys.stdout.write(f"\r  {c}Nota{RESET} {tail}")
@@ -272,6 +274,7 @@ CELL_RE = re.compile(r"^```([A-Za-z0-9_+\-]*)[ \t]*\n(.*?)^```[ \t]*$",
 
 
 def parse_nota(text):
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
     blocks = []; pos = 0; line = 1
     for m in CELL_RE.finditer(text):
         if m.start() > pos:
@@ -462,6 +465,11 @@ def _nice_ticks(lo, hi, count=8):
     return out
 
 
+def _esc_xml(s):
+    return (str(s).replace("&", "&amp;").replace("<", "&lt;")
+                  .replace(">", "&gt;").replace('"', "&quot;"))
+
+
 def render_svg_plot(path):
     if not PLOT_QUEUE: return None
     W, H = 900, 600
@@ -485,7 +493,7 @@ def render_svg_plot(path):
     L.append(f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">')
     L.append(f'<rect width="{W}" height="{H}" fill="#ffffff"/>')
     if PLOT_META["title"]:
-        L.append(f'<text x="{W//2}" y="30" text-anchor="middle" font-family="Georgia,serif" font-size="20" fill="#2c3e50">{PLOT_META["title"]}</text>')
+        L.append(f'<text x="{W//2}" y="30" text-anchor="middle" font-family="Georgia,serif" font-size="20" fill="#2c3e50">{_esc_xml(PLOT_META["title"])}</text>')
     for xt in xticks:
         px = xpx(xt)
         L.append(f'<line x1="{px:.2f}" y1="{MT}" x2="{px:.2f}" y2="{MT+plot_h}" stroke="#ecf0f1"/>')
@@ -515,15 +523,15 @@ def render_svg_plot(path):
             for a, b in pts:
                 L.append(f'<circle cx="{a:.2f}" cy="{b:.2f}" r="3" fill="{color}"/>')
     if PLOT_META["xlabel"]:
-        L.append(f'<text x="{ML+plot_w/2}" y="{H-15}" text-anchor="middle" font-family="Menlo,monospace" font-size="12" fill="#2c3e50">{PLOT_META["xlabel"]}</text>')
+        L.append(f'<text x="{ML+plot_w/2}" y="{H-15}" text-anchor="middle" font-family="Menlo,monospace" font-size="12" fill="#2c3e50">{_esc_xml(PLOT_META["xlabel"])}</text>')
     if PLOT_META["ylabel"]:
-        L.append(f'<text x="20" y="{MT+plot_h/2}" text-anchor="middle" font-family="Menlo,monospace" font-size="12" fill="#2c3e50" transform="rotate(-90 20 {MT+plot_h/2})">{PLOT_META["ylabel"]}</text>')
+        L.append(f'<text x="20" y="{MT+plot_h/2}" text-anchor="middle" font-family="Menlo,monospace" font-size="12" fill="#2c3e50" transform="rotate(-90 20 {MT+plot_h/2})">{_esc_xml(PLOT_META["ylabel"])}</text>')
     lx, ly = ML + 12, MT + 15
     for si, s in enumerate(PLOT_QUEUE):
         if not s.get("label"): continue
         color = colors[si % len(colors)]
         L.append(f'<rect x="{lx}" y="{ly-9}" width="16" height="11" fill="{color}"/>')
-        L.append(f'<text x="{lx+22}" y="{ly}" font-family="Menlo,monospace" font-size="12" fill="#2c3e50">{s["label"]}</text>')
+        L.append(f'<text x="{lx+22}" y="{ly}" font-family="Menlo,monospace" font-size="12" fill="#2c3e50">{_esc_xml(s["label"])}</text>')
         ly += 20
     L.append('</svg>')
     with open(path, "w") as f: f.write("\n".join(L))
@@ -784,12 +792,15 @@ def main():
     load_config()
     _enable_windows_vt()
     if args.no_color: os.environ["NOTA_NO_COLOR"] = "1"
+    if args.no_anim: STATE["animations"] = False
     _strip_ansi_if_needed()
     apply_theme()
     try: signal.signal(signal.SIGINT, _sigint_handler)
     except Exception: pass
 
-    if is_first_run(): first_run_intro()
+    if (not args.check and not args.quiet and not args.no_anim
+            and sys.stdin.isatty() and sys.stdout.isatty() and is_first_run()):
+        first_run_intro()
 
     if not args.file:
         run_repl(); return
@@ -812,7 +823,7 @@ def main():
             print(f"  {RED}\u2715{RESET} {e}"); sys.exit(1)
         return
 
-    run_file(p, svg=args.svg, quiet=args.quiet, animate=not args.no_anim)
+    run_file(p, svg=args.svg, quiet=args.quiet, animate=STATE["animations"])
 
 
 if __name__ == "__main__":

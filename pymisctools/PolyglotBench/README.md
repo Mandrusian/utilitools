@@ -76,6 +76,7 @@ Rerun the bench. PolyglotBench picks it up automatically.
     polyglotbench NAME         run only NAME
     polyglotbench --lang LANG  run only LANG across all problems
     polyglotbench --list       list problems and available implementations
+    polyglotbench --no-anim    skip launch animation
     polyglotbench --no-color   disable ANSI output
 
 ## Notes

@@ -64,6 +64,8 @@ def _build_logo():
 
 def logo():
     for line in _build_logo():
+        if not BLUE:
+            line = re.sub(r"\x1b\[[0-9;]*m", "", line)
         print(line)
     print()
 
@@ -239,8 +241,11 @@ def render_svg(commits, path, title=None):
     TOP  = 60
     TEXT_PAD = 20
 
-    subject_max_chars = max((len(c["subject"]) for c in commits), default=0)
-    text_w = min(720, 12 * (subject_max_chars + 12))
+    subject_max_chars = max(
+        (len(c["subject"]) + (len(c["refs"]) + 4 if c["refs"] else 0) for c in commits),
+        default=0,
+    )
+    text_w = min(960, 12 * (subject_max_chars + 12))
     W = LEFT + max_lanes * LANE_W + TEXT_PAD + text_w + 40
     H = TOP + len(rows) * ROW_H + 40
 

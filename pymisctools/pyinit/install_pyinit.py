@@ -7,6 +7,7 @@
 
 import argparse
 import os
+import shlex
 import shutil
 import sys
 
@@ -26,9 +27,12 @@ def ok(m):   print(f"  \u2713 {m}")
 def fail(m): print(f"  \u2715 {m}"); sys.exit(1)
 
 
-def _write_unix_launcher(path, root):
+def _write_unix_launcher(path, root, shell="/bin/sh"):
     with open(path, "w") as f:
-        f.write(f"#!/bin/sh\nUTILITOOLS_ROOT={root!r} exec python3 {SRC!r} \"$@\"\n")
+        f.write(
+            f"#!{shell}\n"
+            f"UTILITOOLS_ROOT={shlex.quote(root)} exec python3 {shlex.quote(SRC)} \"$@\"\n"
+        )
     os.chmod(path, 0o755)
 
 
@@ -55,9 +59,7 @@ def install_termux(root):
     launcher_dir = os.path.expanduser("~/.local/bin")
     os.makedirs(launcher_dir, exist_ok=True)
     path = os.path.join(launcher_dir, "pyinit")
-    with open(path, "w") as f:
-        f.write(f"#!/data/data/com.termux/files/usr/bin/sh\nUTILITOOLS_ROOT={root!r} exec python3 {SRC!r} \"$@\"\n")
-    os.chmod(path, 0o755)
+    _write_unix_launcher(path, root, shell="/data/data/com.termux/files/usr/bin/sh")
     ok(f"launcher   {path}")
 
 
@@ -66,7 +68,7 @@ def install_windows(root):
     os.makedirs(dest_dir, exist_ok=True)
     bat = os.path.join(dest_dir, "pyinit.bat")
     with open(bat, "w") as f:
-        f.write(f'@echo off\r\nset UTILITOOLS_ROOT={root}\r\npython "{SRC}" %*\r\n')
+        f.write(f'@echo off\r\nset "UTILITOOLS_ROOT={root}"\r\npython "{SRC}" %*\r\n')
     ok(f"launcher   {bat}")
     info(f"add {dest_dir} to your PATH to run 'pyinit' from anywhere")
 

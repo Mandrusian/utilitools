@@ -11,7 +11,7 @@ and optionally builds a native bundle (.app on macOS, .exe on Windows).
 
 import argparse
 import os
-import platform
+import shlex
 import shutil
 import subprocess
 import sys
@@ -42,7 +42,7 @@ def install_macos():
     os.makedirs(launcher_dir, exist_ok=True)
     launcher = os.path.join(launcher_dir, "unitforge")
     with open(launcher, "w") as f:
-        f.write(f"#!/bin/sh\nexec python3 {dest!r} \"$@\"\n")
+        f.write(f"#!/bin/sh\nexec python3 {shlex.quote(dest)} \"$@\"\n")
     os.chmod(launcher, 0o755)
     ok(f"installed  {dest}")
     ok(f"launcher   {launcher}")
@@ -59,7 +59,7 @@ def install_linux():
     os.makedirs(launcher_dir, exist_ok=True)
     launcher = os.path.join(launcher_dir, "unitforge")
     with open(launcher, "w") as f:
-        f.write(f"#!/bin/sh\nexec python3 {dest!r} \"$@\"\n")
+        f.write(f"#!/bin/sh\nexec python3 {shlex.quote(dest)} \"$@\"\n")
     os.chmod(launcher, 0o755)
     ok(f"installed  {dest}")
     ok(f"launcher   {launcher}")
@@ -75,7 +75,7 @@ def install_termux():
     os.makedirs(launcher_dir, exist_ok=True)
     launcher = os.path.join(launcher_dir, "unitforge")
     with open(launcher, "w") as f:
-        f.write(f"#!/data/data/com.termux/files/usr/bin/sh\nexec python3 {dest!r} \"$@\"\n")
+        f.write(f"#!/data/data/com.termux/files/usr/bin/sh\nexec python3 {shlex.quote(dest)} \"$@\"\n")
     os.chmod(launcher, 0o755)
     ok(f"installed  {dest}")
     ok(f"launcher   {launcher}")

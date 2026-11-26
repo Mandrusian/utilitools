@@ -38,6 +38,8 @@ def _build_logo():
 
 def logo():
     for line in _build_logo():
+        if not BLUE:
+            line = re.sub(r"\x1b\[[0-9;]*m", "", line)
         print(line)
     print()
 
@@ -72,8 +74,10 @@ def find_root():
         if os.path.isdir(cur):
             subs = [d for d in os.listdir(cur) if os.path.isdir(os.path.join(cur, d))]
             if len(subs) >= 1:
-                # accept if at least one subfolder contains a *.py file
+                # accept if at least one non-pyinit subfolder contains a *.py file
                 for s in subs:
+                    if s.startswith(".") or s.lower() == "pyinit":
+                        continue
                     sd = os.path.join(cur, s)
                     try:
                         if any(f.endswith(".py") for f in os.listdir(sd)):
@@ -207,10 +211,19 @@ def launch(tool, args=None):
 # ============================================================
 def main():
     if not _supports_color(): _strip_color()
+    argv = sys.argv[1:]
+    if argv and argv[0] in ("-h", "--help"):
+        print("usage: pyinit [-h] [-l | --list] [tool [args...]]")
+        print()
+        print("Launcher for the utilitools suite.")
+        print("  -l, --list   list discovered tools and exit")
+        print("  tool [args]  launch tool directly with optional arguments")
+        return
+
     root = find_root()
     if not os.path.isdir(root):
         print(f"  {RED}\u2715{RESET} utilitools root not found")
-        print(f"  {DGRAY}set UTILITOOLS_ROOT or move this file into ~/utilitools/pyinit/{RESET}")
+        print(f"  {DGRAY}set UTILITOOLS_ROOT or move this file into ~/utilitools/pymisctools/pyinit/{RESET}")
         sys.exit(1)
 
     tools = discover(root)
@@ -218,8 +231,13 @@ def main():
         print(f"  {RED}\u2715{RESET} no tools found in {root}")
         sys.exit(1)
 
+    if argv and argv[0] in ("-l", "--list"):
+        for t in tools:
+            desc = t["desc"] or ""
+            print(f"  {t['name']:<14} {desc}")
+        return
+
     # allow `pyinit toolname [args...]` to skip the menu
-    argv = sys.argv[1:]
     if argv:
         target = argv[0].lower()
         for t in tools:
